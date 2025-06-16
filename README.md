@@ -4,7 +4,7 @@
 The framework supports diverse debate scenarios, such as Peer Refinement, Devil–Angel contrast, and Socratic questioning, to foster critical reasoning and robust safety evaluation.
 
 This codebase underpins the experiments in our paper:
-**RedDebate: Safer Responses through Multi-Agent Red Teaming Debates** (\[https://arxiv.org/abs/2506.11083])
+**RedDebate: Safer Responses through Multi-Agent Red Teaming Debates** ([arXiv:2506.11083](https://arxiv.org/abs/2506.11083))
 
 <p align="center">
   <img src="assets/framework.jpg" alt="RedDebate Framework Architecture" width="400"/>
