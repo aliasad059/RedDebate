@@ -4,7 +4,7 @@
 The framework supports diverse debate scenarios, such as Peer Refinement, Devil–Angel contrast, and Socratic questioning, to foster critical reasoning and robust safety evaluation.
 
 This codebase underpins the experiments in our paper:
-**RedDebate: Safer Responses through Multi-Agent Red Teaming Debates** (\[arXiv link coming soon])
+**RedDebate: Safer Responses through Multi-Agent Red Teaming Debates** (\[https://arxiv.org/abs/2506.11083])
 
 <p align="center">
   <img src="assets/framework.jpg" alt="RedDebate Framework Architecture" width="400"/>
@@ -56,16 +56,15 @@ If you use this code, please cite:
 
 ```latex
 @misc{asad2025reddebate,
-  title   = {RedDebate: Safer Responses through Multi-Agent Red Teaming Debates},
-  author  = {Ali Asad and co-authors},
-  year    = {2025},
-  eprint  = {arXiv:25xx.xxxxx},
+  title  = {RedDebate: Safer Responses through Multi-Agent Red Teaming Debates},
+  author = {Ali Asad and Stephen Obadinma and Radin Shayanfar and Xiaodan Zhu},
+  year   = {2025},
+  eprint = {2506.11083},
   archivePrefix = {arXiv},
-  primaryClass  = {cs.CL}
+  primaryClass  = {cs.CL},
+  url = {https://arxiv.org/abs/2506.11083}, 
 }
 ```
-
-**\[arXiv link to be added upon publication]**
 
 ---
 
@@ -73,4 +72,3 @@ If you use this code, please cite:
 
 * [ ] Add Guardrail Memory implementation (for code-generated guardrails using NeMo-Guardrails and Colang).
 * [ ] Add Continuous Memory (PEFT-based and unified memory).
-* [ ] Add more usage examples and API documentation.
