@@ -1,21 +1,18 @@
+"""Logging helpers shared across the RedDebate package."""
+
 import logging
 import sys
 
 def setup_logger(log_file_path):
     """
-    Sets up a logger with console and file output handlers.
+    Sets up a logger that writes messages to both stdout and a log file.
 
-    Creates a logger that outputs to both stdout and a specified file with
-    DEBUG level logging. Includes duplicate handler prevention to avoid
-    multiple handlers being added to the same logger instance.
-
-    Args:
-        log_file_path (str): Path to the log file where messages will be written
+    Parameters:
+        log_file_path (str): The path to the log file where messages will be stored.
 
     Returns:
-        logging.Logger: Configured logger instance with console and file handlers
+        logging.Logger: Configured logger instance.
     """
-
     # Check if a logger with the same name already exists
     logger = logging.getLogger(__name__)
     if not logger.hasHandlers():

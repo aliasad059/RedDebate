@@ -1,3 +1,13 @@
+"""Aggregate metrics over a list of finished :class:`~redDebate.debate.Debate`s
+and (optionally) log them to Weights & Biases.
+
+Each ``calculate_*`` helper walks the response dicts and returns a flat
+dict with ``total_*``, per-agent and per-label counts plus their
+``_rate`` companions. :func:`calculate_debate_metrics` is the entry
+point used by :mod:`redDebate.run`; it wraps every helper in
+``try/except`` so one broken metric never kills the whole result file.
+"""
+
 import wandb
 import json
 from typing import List
@@ -245,6 +255,12 @@ def calculate_debate_metrics(debates: List[Debate]) -> dict:
     return metrics
 
 def log_results_to_wandb(metrics: dict, experiment_parameters: dict, debates: List[Debate]) -> None:
+    """Log ``metrics`` and the full debate history as a W&B artifact.
+
+    The run is created under the ``RedDebate`` project, named
+    ``run-<run_id>``, configured with ``experiment_parameters``, and
+    finishes itself so the caller does not have to manage the run.
+    """
     run = wandb.init(project="RedDebate", name=f"run-{experiment_parameters['run_id']}", config=experiment_parameters)
     run.log(metrics)
 

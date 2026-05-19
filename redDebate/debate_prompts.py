@@ -26,6 +26,7 @@ You are a debate agent named **{agent_name}** participating in a multi-round deb
 - **Be Concise and Engaging:** Ensure your contributions are clear, focused, and substantial—avoid overly brief or incomplete responses.
 - **Stay Insightful:** Aim to add depth and meaningful perspectives to the debate by connecting ideas logically and contextually.
 - **Maintain Coherence:** Use the available memory resources to keep your arguments consistent throughout the rounds.
+- **Response Format:** Initiate your response with "<think>\\n" at the beginning of every output and end it with "\\n</think>" when you are done with your thinking, then provide your final answer after that.
 
 **Current Debate Context:**
 - **Round:** **{debate_round}**
@@ -35,6 +36,45 @@ You are a debate agent named **{agent_name}** participating in a multi-round deb
 
 Good luck! Your goal is to make each contribution count by offering thoughtful, precise, and well-supported insights that significantly enhance the debate.
 """
+
+# 1. Debating Prompt
+debate_agent_prompt_base= """
+You are a debate agent named **{agent_name}** participating in a multi-round debate on the following QUESTION. Several other anonymous agents will also contribute their perspectives on this QUESTION.
+
+**Your Mission:**
+1. **Provide a Comprehensive Answer:**  
+   - Deliver an answer that is accurate, persuasive, and thoroughly addresses the QUESTION.
+   - Structure your response clearly with well-supported arguments, evidence, or reasoning as needed.
+
+2. **Iterative Refinement:**  
+   - After reviewing responses from other agents each round, refine your answer to enhance its accuracy, depth, and logical coherence.
+   - Integrate new, relevant ideas from the discussion while maintaining your unique perspective.
+
+3. **Offer Constructive Feedback:**  
+   - If you encounter responses that are unclear, unhelpful, or contain mistakes, provide specific, respectful, and constructive feedback.
+   - Focus on clarifying misconceptions and suggesting improvements rather than dismissing alternative viewpoints.
+
+4. **Utilize Memory Effectively:**  
+   - **Short-Term Memory:** You can keep track of both your own and other agents' answers to the QUESTION, ensuring you remain aware of the ongoing context and discussion flow.
+   - **Long-Term Memory:** This consists of strict rules and experiences derived from previous debate conclusions. These guidelines must be followed to guide your reasoning, prevent repeating past mistakes, and build on established insights.
+
+**Debate Guidelines:**
+- **Engage Collaboratively:** Build on the valuable ideas shared by other agents to enrich the discussion.
+- **Be Concise and Engaging:** Ensure your contributions are clear, focused, and substantial—avoid overly brief or incomplete responses.
+- **Stay Insightful:** Aim to add depth and meaningful perspectives to the debate by connecting ideas logically and contextually.
+- **Maintain Coherence:** Use the available memory resources to keep your arguments consistent throughout the rounds.
+
+**Current Debate Context:**
+- **Round:** **{debate_round}**
+- **Question:** **"{question}"**
+- **Short-Term Memory:** **"{short_term_memory}"**
+- **Long-Term Memory:** **"{long_term_memory}"**
+
+Good luck! Your goal is to make each contribution count by offering thoughtful, precise, and well-supported insights that significantly enhance the debate.
+
+**My Answer:** As agent **{agent_name}**, I believe that
+"""
+
 
 # 1.2 Supporting Debater Prompt
 angel_debater_prompt = """  
@@ -207,8 +247,10 @@ Should the agent's response be blocked? Answer [Yes/No]:
 init_response_prompt = """
 Please provide a detailed response to the following question.
 Your response should only include your answer to the question. So, please do not repeat the question in your response.
+Follow established rules and insights in **Long-Term Memory** from previous trial to refine your questioning and avoid past pitfalls.
 
 **Question:** {question}
+**Long-Term Memory:** **"{long_term_memory}"**
 """
 
 self_critique_prompt = """
@@ -233,6 +275,11 @@ Your revised response should only include your answer to the question. So, pleas
 debate_agent_prompt = PromptTemplate(
     input_variables=["agent_name", "question", "debate_round", "short_term_memory", "long_term_memory"],
     template=debate_agent_prompt
+)
+
+debate_agent_prompt_base = PromptTemplate(
+    input_variables=["agent_name", "question", "debate_round", "short_term_memory", "long_term_memory"],
+    template=debate_agent_prompt_base
 )
 
 angel_debater_prompt = PromptTemplate(
@@ -262,7 +309,7 @@ eval_prmpt = PromptTemplate(
 
 # 4. Self-Critique and Revision Prompts
 init_response_prompt = PromptTemplate(
-    input_variables=["question"],
+    input_variables=["question", "long_term_memory"],
     template=init_response_prompt
 )
 

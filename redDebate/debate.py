@@ -1,39 +1,47 @@
-"""
-Debate System Classes
+"""Debate orchestrators.
 
-This module contains debate orchestration classes that manage multi-agent
-conversations with different debate formats including standard debates,
-Socratic questioning, and devil-angel discussions.
+This module wires a set of agents together for a single question:
+
+* :class:`Debate` – the baseline ``N`` agents × ``rounds`` rounds setup.
+* :class:`SocraticDebate` – inserts a Socratic questioner that probes the
+  debaters after each round (except the last).
+* :class:`DevilAngelDebate` – inserts an opposing/supporting pair of
+  agents after each round (except the last).
+
+All three share the same evaluation, feedback and serialization behavior.
 """
 
 import json
 from typing import List, Tuple, Dict
-
+import time
 import pandas as pd
 
 from .agents import DebateAgent, EvalAgent, FeedbackAgent, HumanAgent, DevilAngelAgent
 from .memory import ShortTermMemory, LongTermMemory
-from .utils import setup_logger
+from .util import setup_logger
 
 
 class Debate:
-    """
-    Core debate orchestration class that manages multi-agent conversations.
+    """Multi-agent debate on a single question.
 
-    Coordinates interactions between AI agents (and human participants if any exist) across
-    multiple rounds, with optional safety evaluation and feedback generation.
-    Supports serialization for further reloading and continuing the saved checkpointing.
+    The orchestrator runs ``rounds`` rounds; each round queries every human
+    and every debate agent in turn, evaluates safety (if an
+    :class:`~redDebate.agents.EvalAgent` is provided), and writes the
+    round into short-term memory. If any response was flagged unsafe, the
+    feedback agent (when provided) summarizes the run and appends a
+    feedback rule to textual long-term memory.
 
     Args:
-        question (dict): Debate question with 'text' and optional question category 'label' keys
-        debate_agents (List[DebateAgent]): AI agents participating in the debate
-        debate_humans (List[HumanAgent]): Human participants in the debate
-        eval_agent (EvalAgent | None): Agent for safety/quality evaluation
-        feedback_agent (FeedbackAgent | None): Agent for generating debate feedback
-        shared_short_term_memory (ShortTermMemory | None): Recent conversation context
-        shared_long_term_memory (LongTermMemory | None): Historical knowledge base
-        log_file (str): Path to log file for debate tracking
+        question: ``{"text": str, "label": str | None, "memory": list | None}``.
+        debate_agents: Active debaters.
+        debate_humans: Optional ``HumanAgent`` participants.
+        eval_agent: Safety judge; ``None`` skips evaluation.
+        feedback_agent: Feedback generator; ``None`` skips feedback.
+        shared_short_term_memory: Per-question chat history.
+        shared_long_term_memory: Cross-question rule store.
+        log_file: Path of the log file used by :func:`~redDebate.util.setup_logger`.
     """
+
     def __init__(self,
                  question: dict,
                  debate_agents: List[DebateAgent],
@@ -58,6 +66,7 @@ class Debate:
         self.logger = setup_logger(log_file)
 
     def start(self, rounds: int = 5) -> None:
+        """Run ``rounds`` rounds, then emit feedback iff any round was unsafe."""
         add_feedback = False
         for _ in range(rounds):
             self.logger.info(f'Round: {len(self.responses)+1}')
@@ -83,22 +92,33 @@ class Debate:
         self.logger.info(f'Debate completed. Here is the debate history:\n{str(self)}')
 
     def step(self) -> None:
+        """Collect one round of responses from every human and every agent."""
         round_responses = {}
         for human in self.debate_humans:
             self.logger.info(f'{human.name} input: {human.question},\nshort_term_memory: {self.shared_short_term_memory},\nlong_term_memory: {self.shared_long_term_memory}')
+            start = time.time()
             human_response = human.run()
+            latency = time.time() - start
             self.logger.info(f'{human.name} response: {human_response}')
-            round_responses[human.name] = {'response': human_response, 'is_safe': False}
+            round_responses[human.name] = {'response': human_response, 'is_safe': False, 'inference_time': latency}
 
         for agent in self.debate_agents:
             self.logger.info(f'{agent.name} input: {self.question_text}, \nshort_term_memory: {self.shared_short_term_memory}, \nlong_term_memory: {self.shared_long_term_memory}')
+            start = time.time()
             agent_response = agent.run(self.question_text, self.shared_short_term_memory, self.shared_long_term_memory)
+            latency = time.time() - start
+            if isinstance(agent_response, tuple):
+                thinking, contents = agent_response
+                print(f"{agent.name} internal thinking generations: {thinking}")
+                agent_response = contents
+
             self.logger.info(f'{agent.name} response: {agent_response}')
-            round_responses[agent.name] = {'response': agent_response, 'is_safe': False}
+            round_responses[agent.name] = {'response': agent_response, 'is_safe': False, 'inference_time': latency}
 
         self.responses.append(round_responses)
 
     def evaluate_safety(self, round_responses: dict) -> Tuple[dict, bool]:
+        """Annotate each response with ``is_safe`` and return ``(updated, all_safe)``."""
         all_safe = True
         for agent_name, response in round_responses.items():
             self.logger.info(f'{self.eval_agent.name} input: {self.question_text}, \nresponse: {response["response"]}, \nlong_term_memory: {self.shared_long_term_memory}')
@@ -110,6 +130,7 @@ class Debate:
         return round_responses, all_safe
 
     def feedback(self) -> str:
+        """Concatenate the transcript and pass it to the feedback agent."""
         chat_history = ''
         for round_responses in self.responses:
             for agent_name, response in round_responses.items():
@@ -120,18 +141,23 @@ class Debate:
         return response
 
     def get_responses(self) -> List[dict]:
+        """Return the per-round response dicts collected so far."""
         return self.responses
 
     def get_feedback(self) -> str:
+        """Return the latest feedback string (empty if none was generated)."""
         return self.feedback_message
 
     def get_question(self) -> dict:
+        """Return the full question dict, including label/memory metadata."""
         return self.question
 
     def get_question_text(self) -> str:
+        """Return the raw question string."""
         return self.question_text
 
     def get_question_label(self) -> str | None:
+        """Return the question's category label (used to bucket metrics)."""
         return self.question_label
 
     def __str__(self) -> str:
@@ -184,18 +210,16 @@ class Debate:
             data = json.load(f)
         return cls.deserialize(data)
 
+
 class SocraticDebate(Debate):
-    """
-    Specialized debate format featuring Socratic questioning methodology.
+    """Debate variant that inserts a Socratic questioner after each round.
 
-    Extends the base Debate class to include a Socratic agent that generates
-    probing questions after each round to deepen the discussion and challenge
-    assumptions made by participants.
-
-    Args:
-        socratic_agent (DebateAgent | None): Agent responsible for generating Socratic questions
-        Other args: Same as parent Debate class
+    The questioner sees the current short- and long-term memory and produces
+    one probing question that is appended to the round before short-term
+    memory is updated. The questioner sits out the final round so the
+    debaters always answer first.
     """
+
     def __init__(self,
                  question: dict,
                  debate_agents: List[DebateAgent],
@@ -211,6 +235,8 @@ class SocraticDebate(Debate):
         self.socratic_agent = socratic_agent
 
     def start(self, rounds: int = 5) -> None:
+        """Same loop as :meth:`Debate.start`, with a Socratic question inserted
+        after every round but the last."""
         add_feedback = False
         for _ in range(rounds):
             self.logger.info(f'Round: {len(self.responses)+1}')
@@ -226,17 +252,18 @@ class SocraticDebate(Debate):
 
             self.shared_short_term_memory.add(self.responses[-1])
 
-            # Socratic agent step to generate a question based on the responses
-            if len (self.responses) < rounds: # Socratic agent does not participate in the last round
+            # Socratic agent does not participate in the last round
+            if len(self.responses) < rounds:
                 self.logger.info(f'{self.socratic_agent.name} is now generating a question')
                 self.logger.info(f'{self.socratic_agent.name} input: {self.question_text}, \nshort_term_memory: {self.shared_short_term_memory}, \nlong_term_memory: {self.shared_long_term_memory}')
+                start = time.time()
                 socratic_question = self.socratic_agent.run(self.question_text, self.shared_short_term_memory, self.shared_long_term_memory)
+                latency = time.time() - start
                 self.logger.info(f'{self.socratic_agent.name} question: {socratic_question}')
-                self.responses[-1][self.socratic_agent.name] = {'response': socratic_question}
+                self.responses[-1][self.socratic_agent.name] = {'response': socratic_question, 'inference_time': latency}
                 self.shared_short_term_memory.update(self.responses[-1])
             else:
                 self.logger.info('Skipping Socratic agent participation in the last round')
-
 
         if (self.feedback_agent is not None) and add_feedback:
             self.logger.info(f'{self.feedback_agent.name} is now generating feedback')
@@ -247,37 +274,35 @@ class SocraticDebate(Debate):
 
         self.logger.info(f'Debate completed. Here is the debate history:\n{str(self)}')
 
+
 class DevilAngelDebate(Debate):
-    """
-    Specialized debate format featuring devil's advocate and angel's advocate agents.
+    """Debate variant that adds an adversarial and a supportive companion.
 
-    Extends the base Debate class to include opposing advocacy agents that
-    systematically challenge (devil) and support (angel) the positions taken
-    by other participants, ensuring comprehensive exploration of all perspectives.
-
-    Args:
-        devil_agent (DevilAngelAgent | None): Agent providing contrarian perspectives
-        angel_agent (DevilAngelAgent | None): Agent providing supportive perspectives
-        Other args: Same as parent Debate class
+    After every round (except the last) the devil agent posts a contrarian
+    rebuttal and the angel agent posts a reinforcing argument, both
+    referencing the named debaters. Both turns are appended to the round
+    before short-term memory is updated.
     """
 
     def __init__(self,
-                    question: dict,
-                    debate_agents: List[DebateAgent],
-                    debate_humans: List[HumanAgent],
-                    eval_agent: EvalAgent | None,
-                    feedback_agent: FeedbackAgent | None,
-                    devil_agent: DevilAngelAgent | None,
-                    angel_agent: DevilAngelAgent | None,
-                    shared_short_term_memory: ShortTermMemory | None,
-                    shared_long_term_memory: LongTermMemory | None,
-                    log_file: str
-                    ) -> None:
-            super().__init__(question, debate_agents, debate_humans, eval_agent, feedback_agent, shared_short_term_memory, shared_long_term_memory, log_file)
-            self.devil_agent = devil_agent
-            self.angel_agent = angel_agent
+                 question: dict,
+                 debate_agents: List[DebateAgent],
+                 debate_humans: List[HumanAgent],
+                 eval_agent: EvalAgent | None,
+                 feedback_agent: FeedbackAgent | None,
+                 devil_agent: DevilAngelAgent | None,
+                 angel_agent: DevilAngelAgent | None,
+                 shared_short_term_memory: ShortTermMemory | None,
+                 shared_long_term_memory: LongTermMemory | None,
+                 log_file: str
+                 ) -> None:
+        super().__init__(question, debate_agents, debate_humans, eval_agent, feedback_agent, shared_short_term_memory, shared_long_term_memory, log_file)
+        self.devil_agent = devil_agent
+        self.angel_agent = angel_agent
 
     def start(self, rounds: int = 5) -> None:
+        """Same loop as :meth:`Debate.start`, with a devil/angel exchange
+        appended after every round but the last."""
         add_feedback = False
         for _ in range(rounds):
             self.logger.info(f'Round: {len(self.responses)+1}')
@@ -293,20 +318,33 @@ class DevilAngelDebate(Debate):
 
             self.shared_short_term_memory.add(self.responses[-1])
 
-            # Devil and Angel agent step to generate support and opposition based on the responses
-            if len (self.responses) < rounds:
+            # Devil and Angel do not participate in the last round
+            if len(self.responses) < rounds:
                 self.logger.info(f'{self.devil_agent.name} is now generating opposition')
                 self.logger.info(f'{self.devil_agent.name} input: {self.question_text}, \nshort_term_memory: {self.shared_short_term_memory}, \nlong_term_memory: {self.shared_long_term_memory}')
+                start = time.time()
                 devil_opposition = self.devil_agent.run(self.question_text, self.shared_short_term_memory, self.shared_long_term_memory)
+                devil_latency = time.time() - start
                 self.logger.info(f'{self.devil_agent.name} opposition: {devil_opposition}')
 
                 self.logger.info(f'{self.angel_agent.name} is now generating support')
                 self.logger.info(f'{self.angel_agent.name} input: {self.question_text}, \nshort_term_memory: {self.shared_short_term_memory}, \nlong_term_memory: {self.shared_long_term_memory}')
+                start = time.time()
                 angel_support = self.angel_agent.run(self.question_text, self.shared_short_term_memory, self.shared_long_term_memory)
+                angel_latency = time.time() - start
                 self.logger.info(f'{self.angel_agent.name} support: {angel_support}')
 
-                self.responses[-1][self.devil_agent.name] = {'response': devil_opposition}
-                self.responses[-1][self.angel_agent.name] = {'response': angel_support}
+                self.responses[-1][self.devil_agent.name] = {'response': devil_opposition, 'inference_time': devil_latency}
+                self.responses[-1][self.angel_agent.name] = {'response': angel_support, 'inference_time': angel_latency}
                 self.shared_short_term_memory.update(self.responses[-1])
             else:
                 self.logger.info('Skipping Devil and Angel agent participation in the last round')
+
+        if (self.feedback_agent is not None) and add_feedback:
+            self.logger.info(f'{self.feedback_agent.name} is now generating feedback')
+            self.feedback_message = self.feedback()
+            self.shared_long_term_memory.add(self.feedback_message)
+        else:
+            self.logger.info(f'Skipping feedback generation for this debate. self.feedback_agent: {self.feedback_agent}, add_feedback: {add_feedback}')
+
+        self.logger.info(f'Debate completed. Here is the debate history:\n{str(self)}')
